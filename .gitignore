@@ -208,3 +208,5 @@ __marimo__/
 /models/openbmb/VoxCPM1.5
 /models/iic/speech_zipenhancer_ans_multiloss_16k_base
 /models/iic/SenseVoiceSmall
+/build_c
+build_script.py

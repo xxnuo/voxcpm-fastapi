@@ -46,6 +46,7 @@ prepare-pypi:
 
 compile: sync-to-gpu
 	ssh -t $(REMOTE) "cd $(REMOTE_PATH) && \
+		$(UV) run py2so.py -d server && \
 		$(MAKE) prepare-pypi"
 	$(MAKE) sync-from-gpu
 
