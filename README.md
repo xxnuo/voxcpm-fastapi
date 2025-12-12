@@ -33,4 +33,4 @@ make run-amd64
 
 ## Usage
 
-Docs: [openai.com/docs/api-reference/audio](https://platform.openai.com/docs/api-reference/audio)
+Docs: [openai.com/docs/api-reference/audio/createSpeech](https://platform.openai.com/docs/api-reference/audio/createSpeech)

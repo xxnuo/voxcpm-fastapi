@@ -27,10 +27,13 @@ sync-to-gpu:
 sync-clean:
 	ssh -t $(REMOTE) "rm -rf $(REMOTE_PATH)"
 
-prepare-git:
-	git submodule update --init --recursive
-	$(UV) sync --all-groups
-	mkdir -p models
+prepare-ffmpeg:
+	@echo "You need to download ffmpeg dist to ./models/ffmpeg"
+	@echo "Dir tree should be like this:"
+	@echo " ./models/ffmpeg/dist/bin/ffmpeg"
+	@echo " ./models/ffmpeg/dist/inlcude/aom"
+	@echo " ./models/ffmpeg/dist/lib/libaom.so"
+	@echo " ./models/ffmpeg/dist/share/ffmpeg/examples"
 
 prepare-model:
 	mkdir -p models
@@ -38,16 +41,22 @@ prepare-model:
 	modelscope download --model iic/speech_zipenhancer_ans_multiloss_16k_base --local_dir ./models/iic/speech_zipenhancer_ans_multiloss_16k_base
 	modelscope download --model iic/SenseVoiceSmall --local_dir ./models/iic/SenseVoiceSmall
 
-prepare-pypi:
+prepare-legacy:
 	$(UV) pip compile \
 	--all-extras \
 	--index-url http://wa.lan:10608/simple --trusted-host wa.lan \
-	--no-deps --output-file requirements-pypi.txt ./voxcpm/pyproject.toml
+	--no-deps --output-file requirements-voxcpm.txt ./voxcpm/pyproject.toml
+	sed -i 's/^pydantic==[0-9.]\+/pydantic/' requirements-voxcpm.txt
+	sed -i 's/^huggingface-hub==[0-9.]\+/huggingface-hub/' requirements-voxcpm.txt
+	$(UV) pip compile \
+	--all-extras \
+	--index-url http://wa.lan:10608/simple --trusted-host wa.lan \
+	--no-deps --output-file requirements-pypi.txt ./pyproject.toml
+	sed -i 's/^pydantic==[0-9.]\+/pydantic/' requirements-pypi.txt
 
 compile: sync-to-gpu
 	ssh -t $(REMOTE) "cd $(REMOTE_PATH) && \
-		$(UV) run py2so.py -d server && \
-		$(MAKE) prepare-pypi"
+		$(UV) run py2so.py -d server"
 	$(MAKE) sync-from-gpu
 
 build: compile
@@ -66,15 +75,13 @@ test: build
 		docker run --shm-size=30g -it --rm --gpus all \
 		--name $(DOCKER_NAME) --network host \
 		-v ./output:/app/output \
-		-v /root/.cache/torch_extensions/:/root/.cache/torch_extensions/ \
 		$(DOCKER_NAME):$(VERSION)-dev"
 
 inspect: build
 	ssh -t $(REMOTE) "cd $(REMOTE_PATH) && \
 		docker run --shm-size=30g -it --rm --gpus all \
 		--name $(DOCKER_NAME) --network host \
-		-v ./output:/app/output \
-		-v /root/.cache/torch_extensions/:/root/.cache/torch_extensions/ \
+		-v .:/app \
 		$(DOCKER_NAME):$(VERSION)-dev bash"
 
 push: compile
@@ -89,6 +96,3 @@ push: compile
 		. && \
 		docker push $(DOCKER_NAME):$(VERSION)"
 	@echo $(DOCKER_NAME):$(VERSION) >> $(DOCKER_NAME).version
-
-run-amd64:
-	$(UV) run run.py
