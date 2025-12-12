@@ -6,8 +6,6 @@ VoxCPM inference service compatible with OpenAI interface
 
 ## Quick Start
 
-Download repo:
-
 ```
 git clone https://github.com/xxnuo/voxcpm-fastapi.git
 cd voxcpm-fastapi

@@ -98,3 +98,6 @@ push: compile
 		. && \
 		docker push $(DOCKER_NAME):$(VERSION)"
 	@echo $(DOCKER_NAME):$(VERSION) >> $(DOCKER_NAME).version
+
+dev:
+	uv run python -m uvicorn server.main:app --reload --host 0.0.0.0 --port 3000
