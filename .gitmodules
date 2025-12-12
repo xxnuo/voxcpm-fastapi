@@ -1,0 +1,3 @@
+[submodule "voxcpm"]
+	path = voxcpm
+	url = https://github.com/OpenBMB/VoxCPM.git
