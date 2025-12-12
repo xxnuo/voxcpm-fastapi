@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from typing import List, Optional
@@ -26,22 +27,13 @@ VOICE_LIST: List[VoiceInfo] = []
 def build_voice_list():
     """Load the voice list from the voices directory"""
     for file in os.listdir(Config.VIOCES_DIR):
-        if file.endswith(".wav"):
-            voice_name = file.split(".")[0]
-            if os.path.exists(os.path.join(Config.VIOCES_DIR, voice_name + ".txt")):
-                VOICE_LIST.append(
-                    VoiceInfo(
-                        name=voice_name,
-                        description=voice_name,
-                        audio_path=os.path.join(Config.VIOCES_DIR, voice_name + ".wav"),
-                        text_path=os.path.join(Config.VIOCES_DIR, voice_name + ".txt"),
-                    )
-                )
-                logger.info(f"Loaded voice: {voice_name}")
-            else:
-                logger.warning(f"Voice: {voice_name} has no text file")
-        else:
-            logger.warning(f"Voice: {file} is not a wav file")
+        if file.endswith(".json"):
+            voice_info_json: dict = json.load(
+                open(os.path.join(Config.VIOCES_DIR, file), "r", encoding="utf-8")
+            )
+            voice_info = VoiceInfo.model_validate(voice_info_json)
+            logger.info(f"Loaded voice: {voice_info.name}")
+            VOICE_LIST.append(voice_info)
 
 
 @audio_router.get("/voices")
