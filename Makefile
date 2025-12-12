@@ -8,7 +8,7 @@ REMOTE_PATH := ~/projects/work/voxcpm-fastapi
 DOCKER_NAME := voxcpm-fastapi
 
 default:
-	@echo "My custom develop script for voxcpm-fastapi, not for common use!"
+	@echo "This is not a universal script; if you encounter any problems, please modify it yourself to suit your needs!"
 	@echo "Checking dependencies..."
 	@if ! which $(UV) > /dev/null 2>&1; then echo "$(UV) not found, please install it: curl -LsSf https://astral.sh/uv/install.sh | bash"; exit 1; fi
 	@if ! which hf > /dev/null 2>&1; then echo "hf not found, please install it: uv tool install huggingface-hub"; exit 1; fi
@@ -89,3 +89,6 @@ push: compile
 		. && \
 		docker push $(DOCKER_NAME):$(VERSION)"
 	@echo $(DOCKER_NAME):$(VERSION) >> $(DOCKER_NAME).version
+
+run-amd64:
+	$(UV) run run.py
