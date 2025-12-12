@@ -36,6 +36,8 @@ prepare-ffmpeg:
 	@echo " ./models/ffmpeg/dist/share/ffmpeg/examples"
 
 prepare-model:
+	@if ! which hf > /dev/null 2>&1; then echo "hf not found, please install it: uv tool install huggingface-hub"; exit 1; fi
+	@if ! which modelscope > /dev/null 2>&1; then echo "modelscope not found, please install it: uv tool install modelscope"; exit 1; fi
 	mkdir -p models
 	hf download openbmb/VoxCPM1.5 --local-dir ./models/openbmb/VoxCPM1.5
 	modelscope download --model iic/speech_zipenhancer_ans_multiloss_16k_base --local_dir ./models/iic/speech_zipenhancer_ans_multiloss_16k_base

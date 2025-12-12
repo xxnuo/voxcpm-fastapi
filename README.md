@@ -11,24 +11,11 @@ Download repo:
 ```
 git clone https://github.com/xxnuo/voxcpm-fastapi.git
 cd voxcpm-fastapi
-```
-
-Check for dependencies:
-
-```
-make
-```
-
-Download models:
-
-```
+git submodule update --init --recursive
 make prepare-model
-```
-
-Run server on amd64:
-
-```
-make run-amd64
+uv sync
+uv pip install -e ./voxcpm
+uv run run.py
 ```
 
 ## Usage
