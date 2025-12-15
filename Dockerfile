@@ -20,9 +20,12 @@ ENV UV_LINK_MODE=copy
 ENV UV_SYSTEM_PYTHON=1
 
 # Install ffmpeg
-RUN --mount=type=bind,source=./models/ffmpeg,target=/app/models/ffmpeg \
-    cp -r /app/models/ffmpeg/dist/* /usr/local/ && \
-    ldconfig
+RUN apt-key adv --fetch-keys https://repo.download.nvidia.com/jetson/jetson-ota-public.asc
+RUN echo "deb https://repo.download.nvidia.com/jetson/ffmpeg main main" | tee -a /etc/apt/sources.list
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt/lists \
+    apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg
 
 # Copy models
 COPY models/openbmb/VoxCPM1.5 /app/models/openbmb/VoxCPM1.5
@@ -42,9 +45,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY dist/server /app/server
 
 WORKDIR /app
+
 EXPOSE 3000
+
 ENV HF_HUB_OFFLINE=1
+
 ENV HF_MODEL_ID=/app/models/openbmb/VoxCPM1.5
 ENV ZIPENHANCER_MODEL_ID=/app/models/iic/speech_zipenhancer_ans_multiloss_16k_base
+
+COPY voices /app/voices
+ENV VIOCES_DIR=/app/voices
 
 CMD python3 run.py
