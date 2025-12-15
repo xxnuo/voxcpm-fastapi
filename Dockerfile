@@ -44,5 +44,7 @@ COPY dist/server /app/server
 WORKDIR /app
 EXPOSE 3000
 ENV HF_HUB_OFFLINE=1
+ENV HF_MODEL_ID=/app/models/openbmb/VoxCPM1.5
+ENV ZIPENHANCER_MODEL_ID=/app/models/iic/speech_zipenhancer_ans_multiloss_16k_base
 
 CMD python3 run.py
