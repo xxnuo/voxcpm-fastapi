@@ -31,6 +31,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
 COPY models/openbmb/VoxCPM1.5 /app/models/openbmb/VoxCPM1.5
 COPY models/iic/speech_zipenhancer_ans_multiloss_16k_base /app/models/iic/speech_zipenhancer_ans_multiloss_16k_base
 COPY models/iic/SenseVoiceSmall /app/models/iic/SenseVoiceSmall
+COPY voices /app/voices
 COPY voxcpm /app/voxcpm
 COPY run.py /app/run.py
 
@@ -49,11 +50,5 @@ WORKDIR /app
 EXPOSE 3000
 
 ENV HF_HUB_OFFLINE=1
-
-ENV HF_MODEL_ID=/app/models/openbmb/VoxCPM1.5
-ENV ZIPENHANCER_MODEL_ID=/app/models/iic/speech_zipenhancer_ans_multiloss_16k_base
-
-COPY voices /app/voices
-ENV VIOCES_DIR=/app/voices
 
 CMD python3 run.py
