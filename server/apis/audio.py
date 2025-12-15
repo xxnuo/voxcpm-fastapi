@@ -9,11 +9,12 @@ import soundfile as sf
 from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from pydub import AudioSegment
 
+from server.apis.models import MODELS
+from server.apis.voices import VOICE_LIST, voices_router
 from server.config import Config
 from voxcpm import VoxCPM
-from server.apis.voices import VOICE_LIST, voices_router
-from server.apis.models import MODELS
 
 logger = logging.getLogger("audio")
 logger.setLevel(Config.LOG_LEVEL)
@@ -187,25 +188,13 @@ async def generate_speech(request: GenerateSpeechRequest):
     if response_format == "wav":
         output_path = input_path
     else:
-        output_path = f"{input_path}.{response_format}"
         try:
-            subprocess.run(
-                ["ffmpeg", "-i", input_path, "-y", output_path],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            logger.error(f"FFmpeg conversion failed: {e.stderr}")
-            raise HTTPException(status_code=500, detail="Audio conversion failed.")
-        except FileNotFoundError:
-            logger.error(
-                "ffmpeg not found. Please install ffmpeg to support audio conversion."
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="ffmpeg not found, cannot convert audio.",
-            )
+            song = AudioSegment.from_wav(input_path)
+            output_path = f"{input_path}.{response_format}"
+            song.export(output_path, format=response_format)
+        except Exception as e:
+            logger.error(f"Audio conversion failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Audio conversion failed: {e}")
         finally:
             if input_path != output_path:
                 os.remove(input_path)
