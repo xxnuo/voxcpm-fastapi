@@ -6,18 +6,23 @@ import tempfile
 from typing import Annotated, List, Literal, Optional
 
 import soundfile as sf
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from server.config import Config
 from voxcpm import VoxCPM
+from server.apis.voices import VOICE_LIST, voices_router
+from server.apis.models import MODELS
 
 logger = logging.getLogger("audio")
 logger.setLevel(Config.LOG_LEVEL)
 
+MODEL: Optional[VoxCPM] = None
+
 
 def load_model():
+    """加载模型"""
     global MODEL
     if MODEL is None:
         logger.info("Loading TTS model...")
@@ -29,29 +34,6 @@ def load_model():
         logger.info("TTS model loaded.")
 
 
-def build_voice_list():
-    if len(VOICE_LIST) > 0:
-        return
-    for file in os.listdir(Config.VOICES_DIR):
-        if file.endswith(".json"):
-            voice_info_json: dict = json.load(
-                open(os.path.join(Config.VOICES_DIR, file), "r", encoding="utf-8")
-            )
-            voice_info = VoiceInfo.model_validate(voice_info_json)
-            logger.info(f"Loaded voice: {voice_info.name}")
-            VOICE_LIST.append(voice_info)
-
-
-class VoiceInfo(BaseModel):
-    name: str
-    description: Optional[str] = None
-    audio_path: Optional[str] = None
-    text_path: Optional[str] = None
-    text: Optional[str] = None
-
-
-VOICE_LIST: List[VoiceInfo] = []
-MODEL: Optional[VoxCPM] = None
 SUPPORTED_FORMATS = {
     "mp3": "audio/mpeg",
     "opus": "audio/opus",
@@ -62,62 +44,7 @@ SUPPORTED_FORMATS = {
 
 
 audio_router = APIRouter(tags=["Audio API"])
-
-
-@audio_router.get("/voices")
-def list_voices():
-    if len(VOICE_LIST) == 0:
-        build_voice_list()
-    try:
-        voice = [voice.name for voice in VOICE_LIST]
-        return {"voices": voice}
-    except Exception as e:
-        logger.error(f"Error listing voices: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": "server_error",
-                "message": "Failed to retrieve voice list",
-                "type": "server_error",
-            },
-        )
-
-
-@audio_router.get("/voices/{voice}")
-def get_voice(voice: str):
-    if len(VOICE_LIST) == 0:
-        build_voice_list()
-    selected_voice = next((v for v in VOICE_LIST if v.name == voice), None)
-    if not selected_voice:
-        raise HTTPException(status_code=400, detail=f"Voice '{voice}' not found.")
-    voice_wav_path = os.path.join(Config.VOICES_DIR, selected_voice.audio_path or "")
-    if not os.path.exists(voice_wav_path):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Audio file for voice {voice} not found at {voice_wav_path}",
-        )
-    return FileResponse(voice_wav_path, media_type="audio/wav")
-
-
-@audio_router.post("/voices/upload")
-def upload_voice(
-    file: UploadFile,
-    text: Annotated[str, Form(description="The text to use for the voice.")],
-    description: Annotated[str, Form(description="The description of the voice.")],
-):
-    if not file.filename.endswith(".wav"):
-        raise HTTPException(status_code=400, detail="File must be a wav file.")
-    file_path = os.path.join(Config.VOICES_DIR, file.filename)
-    with open(file_path, "wb") as f:
-        f.write(file.file.read())
-    voice_info = VoiceInfo(
-        name=file.filename,
-        audio_path=file.filename,
-        text_path=None,
-        text=None,
-    )
-    VOICE_LIST.append(voice_info)
-    return {"message": "Voice uploaded successfully.", "voice": voice_info.name}
+audio_router.include_router(voices_router, prefix="/voices")
 
 
 class GenerateSpeechRequest(BaseModel):
@@ -126,13 +53,13 @@ class GenerateSpeechRequest(BaseModel):
         ...,
         description="The text to generate audio for.",
     )
-    model: str = Field(
+    model: Literal[MODELS.keys()] = Field(
         default="voxcpm-1.5",
-        description="One of the available TTS models: tts-1, tts-1-hd or gpt-4o-mini-tts.",
+        description=f"One of the available TTS models: {', '.join(MODELS.keys())}.",
     )
-    voice: str = Field(
+    voice: Literal[VOICE_LIST.keys()] = Field(
         default="en_female_neko",
-        description="The voice to use for the audio generation.",
+        description=f"One of the available voices: {', '.join(VOICE_LIST.keys())}.",
     )
     instructions: Optional[str] = Field(
         default=None,
@@ -231,18 +158,22 @@ async def generate_speech(request: GenerateSpeechRequest):
     with open(prompt_text_path, "r", encoding="utf-8") as f:
         prompt_text = f.read()
 
-    wav = MODEL.generate(
-        text=request.input,
-        prompt_wav_path=prompt_audio_path,
-        prompt_text=prompt_text,
-        cfg_value=2.0,
-        inference_timesteps=10,
-        normalize=False,
-        denoise=False,
-        retry_badcase=True,
-        retry_badcase_max_times=3,
-        retry_badcase_ratio_threshold=6.0,
-    )
+    try:
+        wav = MODEL.generate(
+            text=request.input,
+            prompt_wav_path=prompt_audio_path,
+            prompt_text=prompt_text,
+            cfg_value=request.cfg_value or 2.0,
+            inference_timesteps=request.inference_timesteps or 10,
+            normalize=request.normalize or False,
+            denoise=request.denoise or False,
+            retry_badcase=request.retry_badcase or True,
+            retry_badcase_max_times=request.retry_badcase_max_times or 3,
+            retry_badcase_ratio_threshold=request.retry_badcase_ratio_threshold or 6.0,
+        )
+    except Exception as e:
+        logger.error(f"Error generating audio: {e}")
+        raise HTTPException(status_code=500, detail=f"Error generating audio: {e}")
 
     response_format = (request.response_format or "mp3").lower()
     if response_format not in SUPPORTED_FORMATS:
