@@ -85,11 +85,11 @@ class GenerateSpeechRequest(BaseModel):
     # Extra parameters for the audio generation supported by VoxCPM
     prompt_wav_path: Optional[str] = Field(
         default=None,
-        description="Path to a prompt speech for voice cloning.",
+        description="Path to a prompt speech for voice cloning.(use /voices/upload to upload a voice)",
     )
     prompt_text: Optional[str] = Field(
         default=None,
-        description="Reference text for voice cloning.",
+        description="Reference text for voice cloning.(use /voices/upload to upload a voice)",
     )
     cfg_value: Optional[float] = Field(
         default=2.0,
