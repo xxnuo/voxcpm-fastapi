@@ -3,19 +3,43 @@ import logging
 import os
 import subprocess
 import tempfile
-from typing import List, Optional
+from typing import Annotated, List, Literal, Optional
 
 import soundfile as sf
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field
 
-from server.apis.models import MODELS
 from server.config import Config
 from voxcpm import VoxCPM
 
 logger = logging.getLogger("audio")
 logger.setLevel(Config.LOG_LEVEL)
+
+
+def load_model():
+    global MODEL
+    if MODEL is None:
+        logger.info("Loading TTS model...")
+        MODEL = VoxCPM.from_pretrained(
+            hf_model_id=Config.VOXCPM_MODEL_ID,
+            zipenhancer_model_id=Config.ZIPENHANCER_MODEL_ID,
+            local_files_only=True,
+        )
+        logger.info("TTS model loaded.")
+
+
+def build_voice_list():
+    if len(VOICE_LIST) > 0:
+        return
+    for file in os.listdir(Config.VOICES_DIR):
+        if file.endswith(".json"):
+            voice_info_json: dict = json.load(
+                open(os.path.join(Config.VOICES_DIR, file), "r", encoding="utf-8")
+            )
+            voice_info = VoiceInfo.model_validate(voice_info_json)
+            logger.info(f"Loaded voice: {voice_info.name}")
+            VOICE_LIST.append(voice_info)
 
 
 class VoiceInfo(BaseModel):
@@ -36,34 +60,6 @@ SUPPORTED_FORMATS = {
     "wav": "audio/wav",
 }
 
-
-def load_model():
-    global MODEL
-    if MODEL is None:
-        logger.info("Loading TTS model...")
-        MODEL = VoxCPM.from_pretrained(
-            hf_model_id=Config.HF_MODEL_ID,
-            zipenhancer_model_id=Config.ZIPENHANCER_MODEL_ID,
-            local_files_only=True,
-        )
-        logger.info("TTS model loaded.")
-
-
-def build_voice_list():
-    if len(VOICE_LIST) > 0:
-        return
-    for file in os.listdir(Config.VIOCES_DIR):
-        if file.endswith(".json"):
-            voice_info_json: dict = json.load(
-                open(os.path.join(Config.VIOCES_DIR, file), "r", encoding="utf-8")
-            )
-            voice_info = VoiceInfo.model_validate(voice_info_json)
-            logger.info(f"Loaded voice: {voice_info.name}")
-            VOICE_LIST.append(voice_info)
-
-
-build_voice_list()
-load_model()
 
 audio_router = APIRouter(tags=["Audio API"])
 
@@ -87,35 +83,134 @@ def list_voices():
         )
 
 
-class CreateSpeechRequest(BaseModel):
-    input: str
-    model: str
-    voice: str
-    response_format: Optional[str] = "mp3"
-    speed: Optional[float] = 1.0
+@audio_router.get("/voices/{voice}")
+def get_voice(voice: str):
+    if len(VOICE_LIST) == 0:
+        build_voice_list()
+    selected_voice = next((v for v in VOICE_LIST if v.name == voice), None)
+    if not selected_voice:
+        raise HTTPException(status_code=400, detail=f"Voice '{voice}' not found.")
+    voice_wav_path = os.path.join(Config.VOICES_DIR, selected_voice.audio_path or "")
+    if not os.path.exists(voice_wav_path):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Audio file for voice {voice} not found at {voice_wav_path}",
+        )
+    return FileResponse(voice_wav_path, media_type="audio/wav")
+
+
+@audio_router.post("/voices/upload")
+def upload_voice(
+    file: UploadFile,
+    text: Annotated[str, Form(description="The text to use for the voice.")],
+    description: Annotated[str, Form(description="The description of the voice.")],
+):
+    if not file.filename.endswith(".wav"):
+        raise HTTPException(status_code=400, detail="File must be a wav file.")
+    file_path = os.path.join(Config.VOICES_DIR, file.filename)
+    with open(file_path, "wb") as f:
+        f.write(file.file.read())
+    voice_info = VoiceInfo(
+        name=file.filename,
+        audio_path=file.filename,
+        text_path=None,
+        text=None,
+    )
+    VOICE_LIST.append(voice_info)
+    return {"message": "Voice uploaded successfully.", "voice": voice_info.name}
+
+
+class GenerateSpeechRequest(BaseModel):
+    # OpenAI Compatible Parameters
+    input: str = Field(
+        ...,
+        description="The text to generate audio for.",
+    )
+    model: str = Field(
+        default="voxcpm-1.5",
+        description="One of the available TTS models: tts-1, tts-1-hd or gpt-4o-mini-tts.",
+    )
+    voice: str = Field(
+        default="en_female_neko",
+        description="The voice to use for the audio generation.",
+    )
+    instructions: Optional[str] = Field(
+        default=None,
+        description="[Not used] Control the voice of your generated audio with additional instructions. Does not work with tts-1 or tts-1-hd.",
+    )
+    response_format: Optional[Literal["mp3", "opus", "aac", "flac", "wav", "pcm"]] = (
+        Field(
+            default="mp3",
+            description="The format to audio in. Supported formats are mp3, opus, aac, flac, wav, and pcm.",
+        )
+    )
+    speed: Optional[float] = Field(
+        default=1.0,
+        ge=0.25,
+        le=4.0,
+        description="[Not used] The speed of the generated audio. Select a value from 0.25 to 4.0. 1.0 is the default.",
+    )
+    stream_format: Optional[Literal["sse", "audio"]] = Field(
+        default="audio",
+        description="The format to stream the audio in. Supported formats are sse and audio. sse is not supported for tts-1 or tts-1-hd.",
+    )
+
+    # Extra parameters for the audio generation supported by VoxCPM
+    prompt_wav_path: Optional[str] = Field(
+        default=None,
+        description="Path to a prompt speech for voice cloning.",
+    )
+    prompt_text: Optional[str] = Field(
+        default=None,
+        description="Reference text for voice cloning.",
+    )
+    cfg_value: Optional[float] = Field(
+        default=2.0,
+        description="LM guidance on LocDiT, higher for better adherence to the prompt, but maybe worse.",
+    )
+    inference_timesteps: Optional[int] = Field(
+        default=10,
+        description="LocDiT inference timesteps, higher for better result, lower for fast speed.",
+    )
+    normalize: Optional[bool] = Field(
+        default=False,
+        description="Enable external TN tool, but will disable native raw text support.",
+    )
+    denoise: Optional[bool] = Field(
+        default=False,
+        description="Enable external Denoise tool, but it may cause some distortion and restrict the sampling rate to 16kHz.",
+    )
+    retry_badcase: Optional[bool] = Field(
+        default=True,
+        description="Enable retrying mode for some bad cases (unstoppable).",
+    )
+    retry_badcase_max_times: Optional[int] = Field(
+        default=3,
+        description="Maximum retrying times.",
+    )
+    retry_badcase_ratio_threshold: Optional[float] = Field(
+        default=6.0,
+        description="Maximum length restriction for bad case detection (simple but effective), it could be adjusted for slow pace speech.",
+    )
 
 
 @audio_router.post("/speech")
-async def generate_speech(request: CreateSpeechRequest):
+async def generate_speech(request: GenerateSpeechRequest):
+    global MODEL
     if MODEL is None:
-        raise HTTPException(status_code=503, detail="Model is not loaded yet")
+        load_model()
     if not request.input or not request.input.strip():
         raise HTTPException(status_code=400, detail="Input is required")
-    speed = request.speed if request.speed is not None else 1.0
-    if speed < 0.25 or speed > 4.0:
-        raise HTTPException(
-            status_code=400, detail="Speed must be between 0.25 and 4.0"
-        )
 
-    voice_info = next((v for v in VOICE_LIST if v.name == request.voice), None)
-    if not voice_info:
+    selected_voice = next((v for v in VOICE_LIST if v.name == request.voice), None)
+    if not selected_voice:
         raise HTTPException(
             status_code=400, detail=f"Voice '{request.voice}' not found."
         )
 
     prompt_audio_path = (
-        os.path.join(Config.VIOCES_DIR, voice_info.audio_path)
-        if voice_info.audio_path
+        os.path.join(Config.VOICES_DIR, selected_voice.audio_path)
+        if selected_voice.audio_path
         else None
     )
     if not os.path.exists(prompt_audio_path):
@@ -124,8 +219,8 @@ async def generate_speech(request: CreateSpeechRequest):
             detail=f"Audio file for voice {request.voice} not found at {prompt_audio_path}",
         )
     prompt_text_path = (
-        os.path.join(Config.VIOCES_DIR, voice_info.text_path)
-        if voice_info.text_path
+        os.path.join(Config.VOICES_DIR, selected_voice.text_path)
+        if selected_voice.text_path
         else None
     )
     if not os.path.exists(prompt_text_path):
