@@ -20,6 +20,12 @@ MODELS = {
         "created": 1677649963,
         "owned_by": "openbmb",
     },
+    "gpt-4o-mini-tts": {
+        "id": "gpt-4o-mini-tts",
+        "object": "model",
+        "created": 1677649963,
+        "owned_by": "openbmb",
+    },
     "voxcpm-1.5": {
         "id": "voxcpm-1.5",
         "object": "model",
