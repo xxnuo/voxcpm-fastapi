@@ -17,6 +17,11 @@ class ConfigModel(BaseModel):
     )
     CORS_ALLOW_ORIGIN_REGEX: str = os.getenv("ALLOW_ORIGIN_REGEX", r"^https?://.*$")
     VIOCES_DIR: str = os.getenv("VIOCES_DIR", "./voices")
+    HF_MODEL_ID: str = os.getenv("HF_MODEL_ID", "./models/openbmb/VoxCPM1.5")
+    ZIPENHANCER_MODEL_ID: str = os.getenv(
+        "ZIPENHANCER_MODEL_ID",
+        "./models/iic/speech_zipenhancer_ans_multiloss_16k_base",
+    )
 
 
 Config = ConfigModel()
