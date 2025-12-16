@@ -43,7 +43,7 @@ class ConfigModel(BaseModel):
     )
 
     # Default values
-    DEFAULT_VOICE_ID: str = os.getenv("DEFAULT_VOICE_ID", "en_female_neko")
+    DEFAULT_VOICE_ID: str = os.getenv("DEFAULT_VOICE_ID", "default")
     DEFAULT_CFG_VALUE: float = float(os.getenv("DEFAULT_CFG_VALUE", 2.0))
     DEFAULT_INFERENCE_TIMESTEPS: int = int(os.getenv("DEFAULT_INFERENCE_TIMESTEPS", 10))
     DEFAULT_NORMALIZE: bool = os.getenv("DEFAULT_NORMALIZE", "false").lower() in (
