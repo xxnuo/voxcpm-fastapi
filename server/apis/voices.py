@@ -18,10 +18,11 @@ logger.setLevel(Config.LOG_LEVEL)
 
 class VoiceInfo(BaseModel):
     id: str
-    name: Optional[str] = None
-    description: Optional[str] = None
     audio_path: Optional[str] = None
     text: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    uploaded: Optional[bool] = False
 
 
 VOICE_LIST: List[VoiceInfo] = []
@@ -39,6 +40,15 @@ def build_voice_list():
             voice_info = VoiceInfo.model_validate(voice_info_json)
             logger.info(f"Loaded voice: {voice_info.name}")
             VOICE_LIST.append(voice_info)
+    for file in os.listdir(Config.USER_VOICES_DIR):
+        if file.endswith(".json"):
+            user_voice_info_json: dict = json.load(
+                open(os.path.join(Config.USER_VOICES_DIR, file), "r", encoding="utf-8")
+            )
+            user_voice_info = VoiceInfo.model_validate(user_voice_info_json)
+            user_voice_info.uploaded = True
+            logger.info(f"Loaded user voice: {user_voice_info.id}")
+            VOICE_LIST.append(user_voice_info)
 
 
 voices_router = APIRouter(tags=["Voices API"])
@@ -49,7 +59,7 @@ def list_voices():
     if len(VOICE_LIST) == 0:
         build_voice_list()
     try:
-        voice = [voice.name for voice in VOICE_LIST]
+        voice = [voice.id for voice in VOICE_LIST] if VOICE_LIST else []
         return {"voices": voice}
     except Exception as e:
         logger.error(f"Error listing voices: {str(e)}")
@@ -64,37 +74,67 @@ def list_voices():
 
 
 @voices_router.get("/{voice}")
-def get_voice(voice: str):
+def get_voice(voice: str) -> VoiceInfo:
     if len(VOICE_LIST) == 0:
         build_voice_list()
-    selected_voice = next((v for v in VOICE_LIST if v.name == voice), None)
+    selected_voice = next((v for v in VOICE_LIST if v.id == voice), None)
     if not selected_voice:
         raise HTTPException(status_code=400, detail=f"Voice '{voice}' not found.")
-    voice_wav_path = os.path.join(Config.VOICES_DIR, selected_voice.audio_path or "")
-    if not os.path.exists(voice_wav_path):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Audio file for voice {voice} not found at {voice_wav_path}",
-        )
-    return FileResponse(voice_wav_path, media_type="audio/wav")
+    return selected_voice
 
 
 @voices_router.post("/upload")
 def upload_voice(
-    file: UploadFile,
-    text: Annotated[str, Form(description="The text to use for the voice.")],
+    audio_file: UploadFile,
+    text: Annotated[str, Form(description="The text of the audio file.")],
+    id: Annotated[str, Form(description="The id of the voice, must be unique.")],
+    name: Annotated[str, Form(description="The name of the voice.")],
     description: Annotated[str, Form(description="The description of the voice.")],
 ):
-    if not file.filename.endswith(".wav"):
+    if len(VOICE_LIST) == 0:
+        build_voice_list()
+    if not audio_file.filename.endswith(".wav"):
         raise HTTPException(status_code=400, detail="File must be a wav file.")
-    file_path = os.path.join(Config.VOICES_DIR, file.filename)
-    with open(file_path, "wb") as f:
-        f.write(file.file.read())
     voice_info = VoiceInfo(
-        name=file.filename,
-        audio_path=file.filename,
-        text_path=None,
-        text=None,
+        id=id,
+        name=name,
+        description=description,
+        audio_path=f"{id}.wav",
+        text=text,
+        uploaded=True,
     )
+
+    file_path = os.path.join(Config.USER_VOICES_DIR, f"{id}.wav")
+    try:
+        with open(file_path, "wb") as f:
+            f.write(audio_file.file.read())
+    except Exception as e:
+        logger.error(f"Error uploading voice: {e}")
+        raise HTTPException(status_code=500, detail=f"Error uploading voice: {e}")
+    json_path = os.path.join(Config.USER_VOICES_DIR, f"{id}.json")
+    try:
+        with open(json_path, "w", encoding="utf-8") as f:
+            f.write(voice_info.model_dump_json())
+    except Exception as e:
+        logger.error(f"Error saving voice info: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving voice info: {e}")
+
     VOICE_LIST.append(voice_info)
-    return {"message": "Voice uploaded successfully.", "voice": voice_info.name}
+    return voice_info
+
+
+@voices_router.delete("/{voice}")
+def delete_user_voice(voice: str):
+    if len(VOICE_LIST) == 0:
+        build_voice_list()
+    selected_voice = next((v for v in VOICE_LIST if v.id == voice and v.uploaded), None)
+    if not selected_voice:
+        raise HTTPException(status_code=400, detail=f"Voice '{voice}' not found.")
+    try:
+        os.remove(os.path.join(Config.USER_VOICES_DIR, f"{selected_voice.id}.wav"))
+        os.remove(os.path.join(Config.USER_VOICES_DIR, f"{selected_voice.id}.json"))
+        VOICE_LIST.remove(selected_voice)
+    except Exception as e:
+        logger.error(f"Error deleting voice: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting voice: {e}")
+    return selected_voice
