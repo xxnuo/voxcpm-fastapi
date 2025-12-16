@@ -147,7 +147,7 @@ async def generate_speech(request: GenerateSpeechRequest):
     if response_format not in SUPPORTED_FORMATS:
         response_format = "mp3"
 
-    if request.seed is not None:
+    if request.seed is not None or request.seed != -1 or request.seed != 0:
         set_seed(request.seed)
 
     generate_kwargs = dict(
