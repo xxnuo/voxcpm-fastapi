@@ -1,18 +1,21 @@
-import json
 import logging
 import os
-import subprocess
 import tempfile
-from typing import Annotated, List, Literal, Optional
+from typing import Literal, Optional
 
 import soundfile as sf
-from fastapi import APIRouter, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from pydub import AudioSegment
 
 from server.apis.models import MODELS
-from server.apis.voices import VOICE_LIST, voices_router
+from server.apis.voices import (
+    VOICE_LIST,
+    get_voice_audio_full_path,
+    get_voice_text,
+    voices_router,
+)
 from server.config import Config
 from voxcpm import VoxCPM
 
@@ -54,17 +57,17 @@ class GenerateSpeechRequest(BaseModel):
         ...,
         description="The text to generate audio for.",
     )
-    model: Literal[MODELS.keys()] = Field(
+    model: str = Field(
         default="voxcpm-1.5",
-        description=f"One of the available TTS models: {', '.join(MODELS.keys())}.",
+        description="One of the available TTS models (use /models to list all available models).",
     )
-    voice: Literal[VOICE_LIST.keys()] = Field(
-        default="en_female_neko",
-        description=f"One of the available voices: {', '.join(VOICE_LIST.keys())}.",
+    voice: str = Field(
+        default=Config.DEFAULT_VOICE_ID,
+        description="One of the available voices (use /voices to list all available voices' ids, use /voices/upload to upload a user voice and get the id).",
     )
     instructions: Optional[str] = Field(
         default=None,
-        description="[Not used] Control the voice of your generated audio with additional instructions. Does not work with tts-1 or tts-1-hd.",
+        description="[Not used] Control the voice of your generated audio with additional instructions.",
     )
     response_format: Optional[Literal["mp3", "opus", "aac", "flac", "wav", "pcm"]] = (
         Field(
@@ -84,14 +87,6 @@ class GenerateSpeechRequest(BaseModel):
     )
 
     # Extra parameters for the audio generation supported by VoxCPM
-    prompt_wav_path: Optional[str] = Field(
-        default=None,
-        description="Path to a prompt speech for voice cloning.(use /voices/upload to upload a voice)",
-    )
-    prompt_text: Optional[str] = Field(
-        default=None,
-        description="Reference text for voice cloning.(use /voices/upload to upload a voice)",
-    )
     cfg_value: Optional[float] = Field(
         default=2.0,
         description="LM guidance on LocDiT, higher for better adherence to the prompt, but maybe worse.",
@@ -130,47 +125,30 @@ async def generate_speech(request: GenerateSpeechRequest):
     if not request.input or not request.input.strip():
         raise HTTPException(status_code=400, detail="Input is required")
 
-    selected_voice = next((v for v in VOICE_LIST if v.name == request.voice), None)
-    if not selected_voice:
-        raise HTTPException(
-            status_code=400, detail=f"Voice '{request.voice}' not found."
-        )
+    prompt_audio_path = get_voice_audio_full_path(request.voice)
+    prompt_text = get_voice_text(request.voice)
 
-    prompt_audio_path = (
-        os.path.join(Config.VOICES_DIR, selected_voice.audio_path)
-        if selected_voice.audio_path
-        else None
-    )
-    if not os.path.exists(prompt_audio_path):
+    if not os.path.exists(prompt_audio_path) or not prompt_text:
         raise HTTPException(
             status_code=400,
-            detail=f"Audio file for voice {request.voice} not found at {prompt_audio_path}",
+            detail=f"Prompt audio or text of voice id:{request.voice} not found.",
         )
-    prompt_text_path = (
-        os.path.join(Config.VOICES_DIR, selected_voice.text_path)
-        if selected_voice.text_path
-        else None
-    )
-    if not os.path.exists(prompt_text_path):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Text file for voice {request.voice} not found at {prompt_text_path}",
-        )
-    with open(prompt_text_path, "r", encoding="utf-8") as f:
-        prompt_text = f.read()
 
     try:
         wav = MODEL.generate(
             text=request.input,
             prompt_wav_path=prompt_audio_path,
             prompt_text=prompt_text,
-            cfg_value=request.cfg_value or 2.0,
-            inference_timesteps=request.inference_timesteps or 10,
-            normalize=request.normalize or False,
-            denoise=request.denoise or False,
-            retry_badcase=request.retry_badcase or True,
-            retry_badcase_max_times=request.retry_badcase_max_times or 3,
-            retry_badcase_ratio_threshold=request.retry_badcase_ratio_threshold or 6.0,
+            cfg_value=request.cfg_value or Config.DEFAULT_CFG_VALUE,
+            inference_timesteps=request.inference_timesteps
+            or Config.DEFAULT_INFERENCE_TIMESTEPS,
+            normalize=request.normalize or Config.DEFAULT_NORMALIZE,
+            denoise=request.denoise or Config.DEFAULT_DENOISE,
+            retry_badcase=request.retry_badcase or Config.DEFAULT_RETRY_BADCASE,
+            retry_badcase_max_times=request.retry_badcase_max_times
+            or Config.DEFAULT_RETRY_BADCASE_MAX_TIMES,
+            retry_badcase_ratio_threshold=request.retry_badcase_ratio_threshold
+            or Config.DEFAULT_RETRY_BADCASE_RATIO_THRESHOLD,
         )
     except Exception as e:
         logger.error(f"Error generating audio: {e}")
