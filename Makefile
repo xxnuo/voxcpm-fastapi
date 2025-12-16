@@ -77,6 +77,7 @@ test: build
 		docker run --shm-size=30g -it --rm --gpus all \
 		--name $(DOCKER_NAME) --network host \
 		-v ./output:/app/output \
+		-e LOG_LEVEL=DEBUG \
 		$(DOCKER_NAME):$(VERSION)-dev"
 
 inspect: build
