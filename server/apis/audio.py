@@ -118,7 +118,7 @@ class GenerateSpeechRequest(BaseModel):
         description="Maximum length restriction for bad case detection (simple but effective), it could be adjusted for slow pace speech.",
     )
     seed: Optional[int] = Field(
-        default=None,
+        default=0,
         description="Random seed for the audio generation.",
     )
 
@@ -149,12 +149,12 @@ async def generate_speech(request: GenerateSpeechRequest):
     if response_format not in SUPPORTED_FORMATS:
         response_format = "mp3"
 
-    if request.seed is not None or request.seed != -1 or request.seed != 0:
+    if request.seed is not None and request.seed != -1 and request.seed != 0:
         logger.debug(f"Using seed: {request.seed}")
         set_seed(request.seed)
     else:
         logger.debug("Using random seed")
-        random_seed = random.randint(1, 1000000000)
+        random_seed = random.getrandbits(32)
         logger.debug(f"Random seed: {random_seed}")
         set_seed(random_seed)
 
