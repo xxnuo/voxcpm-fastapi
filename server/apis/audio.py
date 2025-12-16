@@ -40,6 +40,13 @@ def load_model():
         logger.info("TTS model loaded.")
 
 
+def _change_speed(sound: AudioSegment, speed: float) -> AudioSegment:
+    return sound._spawn(
+        sound.raw_data,
+        overrides={"frame_rate": int(sound.frame_rate * speed)},
+    ).set_frame_rate(sound.frame_rate)
+
+
 SUPPORTED_FORMATS = {
     # OpenAI Compatible Formats
     "mp3": "audio/mpeg",
@@ -81,7 +88,7 @@ class GenerateSpeechRequest(BaseModel):
         default=1.0,
         ge=0.25,
         le=4.0,
-        description="[Not used] The speed of the generated audio. Select a value from 0.25 to 4.0. 1.0 is the default.",
+        description="The speed of the generated audio. Select a value from 0.25 to 4.0. 1.0 is the default.",
     )
     stream_format: Optional[Literal["sse", "audio"]] = Field(
         default="audio",
@@ -241,20 +248,31 @@ async def generate_speech(request: GenerateSpeechRequest):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_wav_file:
         sf.write(tmp_wav_file.name, wav, MODEL.tts_model.sample_rate)
         input_path = tmp_wav_file.name
+    speed = request.speed or 1.0
 
-    if response_format == "wav":
+    if response_format == "wav" and speed == 1.0:
         output_path = input_path
     else:
         try:
             song = AudioSegment.from_wav(input_path)
-            output_path = f"{input_path}.{response_format}"
-            song.export(output_path, format=response_format)
+            if speed != 1.0:
+                song = _change_speed(song, speed)
+
+            if response_format == "wav":
+                output_path = input_path
+                song.export(output_path, format="wav")
+            else:
+                output_path = f"{input_path}.{response_format}"
+                song.export(output_path, format=response_format)
         except Exception as e:
             logger.error(f"Audio conversion failed: {e}")
             raise HTTPException(status_code=500, detail=f"Audio conversion failed: {e}")
         finally:
-            if input_path != output_path:
-                os.remove(input_path)
+            if (response_format != "wav" or speed != 1.0) and os.path.exists(
+                input_path
+            ):
+                if input_path != output_path:
+                    os.remove(input_path)
 
     def file_iterator(file_path):
         with open(file_path, "rb") as f:
