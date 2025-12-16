@@ -1,3 +1,5 @@
+import base64
+import json
 import logging
 import os
 import tempfile
@@ -50,7 +52,7 @@ audio_router = APIRouter(tags=["Audio API"])
 class GenerateSpeechRequest(BaseModel):
     # OpenAI Compatible Parameters
     input: str = Field(
-        ...,
+        default="What is the weather like today?",
         description="The text to generate audio for.",
     )
     model: str = Field(
@@ -177,6 +179,37 @@ async def generate_speech(request: GenerateSpeechRequest):
         with open(file_path, "rb") as f:
             yield from f
         os.remove(file_path)
+
+    def sse_iterator(file_path):
+        try:
+            with open(file_path, "rb") as f:
+                while True:
+                    chunk = f.read(4096)
+                    if not chunk:
+                        break
+                    audio_b64 = base64.b64encode(chunk).decode("ascii")
+                    data = {
+                        "type": "response.audio.delta",
+                        "audio": audio_b64,
+                    }
+                    yield f"data: {json.dumps(data)}\n\n"
+            yield f"data: {json.dumps({'type': 'response.audio.completed'})}\n\n"
+            yield f"data: {json.dumps({'type': 'response.completed'})}\n\n"
+            yield "data: [DONE]\n\n"
+        finally:
+            os.remove(file_path)
+
+    if request.stream_format == "sse":
+        headers = {
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Transfer-Encoding": "chunked",
+        }
+        return StreamingResponse(
+            sse_iterator(output_path),
+            media_type="text/event-stream",
+            headers=headers,
+        )
 
     headers = {
         "Content-Disposition": f'attachment; filename="speech.{response_format}"'
