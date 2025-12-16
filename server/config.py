@@ -38,12 +38,9 @@ class ConfigModel(BaseModel):
 
     # Voices
     VOICES_DIR: str = os.getenv("VOICES_DIR", os.path.join(ROOT_DIR, "voices"))
-    USER_VOICES_DIR: str = os.getenv(
-        "USER_VOICES_DIR", os.path.join(ROOT_DIR, "user_voices")
-    )
-
+    
     # Default values
-    DEFAULT_VOICE_ID: str = os.getenv("DEFAULT_VOICE_ID", "default")
+    DEFAULT_VOICE_ID: str = os.getenv("DEFAULT_VOICE_ID", "random")
     DEFAULT_CFG_VALUE: float = float(os.getenv("DEFAULT_CFG_VALUE", 2.0))
     DEFAULT_INFERENCE_TIMESTEPS: int = int(os.getenv("DEFAULT_INFERENCE_TIMESTEPS", 10))
     DEFAULT_NORMALIZE: bool = os.getenv("DEFAULT_NORMALIZE", "false").lower() in (
@@ -72,4 +69,4 @@ class ConfigModel(BaseModel):
 Config = ConfigModel()
 
 # Init
-os.makedirs(Config.USER_VOICES_DIR, exist_ok=True)
+os.makedirs(Config.VOICES_DIR, exist_ok=True)

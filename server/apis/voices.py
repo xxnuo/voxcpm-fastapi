@@ -25,6 +25,7 @@ OPENAI_VOICES = {
     "sage": Config.DEFAULT_VOICE_ID,
     "shimmer": Config.DEFAULT_VOICE_ID,
     "verse": Config.DEFAULT_VOICE_ID,
+    Config.DEFAULT_VOICE_ID: Config.DEFAULT_VOICE_ID,
 }
 
 
@@ -44,6 +45,17 @@ def build_voice_list():
     """[Internal] 构建语音列表"""
     if len(VOICE_LIST) > 0:
         return
+
+    for k, v in OPENAI_VOICES.items():
+        VOICE_LIST.append(
+            VoiceInfo(
+                id=k,
+                name=v,
+                description=v,
+                audio_path=v,
+            )
+        )
+
     for file in os.listdir(Config.VOICES_DIR):
         if file.endswith(".json"):
             voice_info_json: dict = json.load(
@@ -52,62 +64,37 @@ def build_voice_list():
             voice_info = VoiceInfo.model_validate(voice_info_json)
             logger.info(f"Loaded voice: {voice_info.name}")
             VOICE_LIST.append(voice_info)
-    for file in os.listdir(Config.USER_VOICES_DIR):
-        if file.endswith(".json"):
-            user_voice_info_json: dict = json.load(
-                open(os.path.join(Config.USER_VOICES_DIR, file), "r", encoding="utf-8")
-            )
-            user_voice_info = VoiceInfo.model_validate(user_voice_info_json)
-            user_voice_info.uploaded = True
-            logger.info(f"Loaded user voice: {user_voice_info.id}")
-            VOICE_LIST.append(user_voice_info)
 
 
-def get_voice_audio_full_path(id: str) -> str:
+def get_voice_audio_full_path(id: str) -> str | None:
     """[Internal] 获取音频文件完整路径"""
     if len(VOICE_LIST) == 0:
         build_voice_list()
     if id in OPENAI_VOICES:
-        id = OPENAI_VOICES[id]
+        return None
     selected_voice = next((v for v in VOICE_LIST if v.id == id), None)
     if not selected_voice:
         logger.warning(
-            f"Voice '{id}' not found, using default voice {Config.DEFAULT_VOICE_ID}."
+            f"Voice id:'{id}' not found, using default voice: '{Config.DEFAULT_VOICE_ID}'."
         )
-        selected_voice = next(
-            (v for v in VOICE_LIST if v.id == Config.DEFAULT_VOICE_ID), None
-        )
-        if not selected_voice:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Default voice {Config.DEFAULT_VOICE_ID} not found.",
-            )
-    if not selected_voice.uploaded:
-        return os.path.join(Config.VOICES_DIR, selected_voice.audio_path)
-    else:
-        return os.path.join(Config.USER_VOICES_DIR, selected_voice.audio_path)
+        return None
+
+    return os.path.join(Config.VOICES_DIR, selected_voice.audio_path)
 
 
-def get_voice_text(id: str) -> str:
+def get_voice_text(id: str) -> str | None:
     """[Internal] 获取语音文本"""
     if len(VOICE_LIST) == 0:
         build_voice_list()
     if id in OPENAI_VOICES:
-        id = OPENAI_VOICES[id]
+        return None
     selected_voice = next((v for v in VOICE_LIST if v.id == id), None)
     if not selected_voice:
         logger.warning(
-            f"Voice '{id}' not found, using default voice {Config.DEFAULT_VOICE_ID}."
+            f"Voice id:'{id}' not found, using default voice: '{Config.DEFAULT_VOICE_ID}'."
         )
-        selected_voice = next(
-            (v for v in VOICE_LIST if v.id == Config.DEFAULT_VOICE_ID), None
-        )
-        if not selected_voice:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Default voice {Config.DEFAULT_VOICE_ID} not found.",
-            )
-    return selected_voice.text or ""
+        return None
+    return selected_voice.text or None
 
 
 voices_router = APIRouter(tags=["Voices API"])
@@ -134,30 +121,41 @@ def list_voices():
 
 
 @voices_router.get("/{voice}")
-def get_voice_info(voice: str) -> VoiceInfo:
-    """[Special] Get the info of a voice."""
+def get_user_voice_info(voice: str) -> VoiceInfo:
+    """[Special] Get the info of a user voice."""
     if len(VOICE_LIST) == 0:
         build_voice_list()
-    selected_voice = next((v for v in VOICE_LIST if v.id == voice), None)
+    selected_voice = next(
+        (
+            v
+            for v in VOICE_LIST
+            if v.id == voice and v.uploaded and v.id not in OPENAI_VOICES
+        ),
+        None,
+    )
     if not selected_voice:
-        raise HTTPException(status_code=400, detail=f"Voice '{voice}' not found.")
+        raise HTTPException(status_code=400, detail=f"User voice '{voice}' not found.")
     return selected_voice
 
 
 @voices_router.get("/{voice}/audio")
-def get_voice_audio(voice: str) -> FileResponse:
-    """[Special] Get the audio file of a voice."""
+def get_user_voice_audio(voice: str) -> FileResponse:
+    """[Special] Get the audio file of a user voice."""
     if len(VOICE_LIST) == 0:
         build_voice_list()
-    selected_voice = next((v for v in VOICE_LIST if v.id == voice), None)
+    selected_voice = next(
+        (
+            v
+            for v in VOICE_LIST
+            if v.id == voice and v.uploaded and v.id not in OPENAI_VOICES
+        ),
+        None,
+    )
     if not selected_voice:
-        raise HTTPException(status_code=400, detail=f"Voice '{voice}' not found.")
-    if not selected_voice.uploaded:
-        return FileResponse(os.path.join(Config.VOICES_DIR, selected_voice.audio_path))
-    else:
-        return FileResponse(
-            os.path.join(Config.USER_VOICES_DIR, selected_voice.audio_path)
+        raise HTTPException(
+            status_code=400, detail=f"User voice id:'{voice}' not found."
         )
+    return FileResponse(os.path.join(Config.VOICES_DIR, selected_voice.audio_path))
 
 
 @voices_router.post("/upload")
@@ -175,7 +173,7 @@ def upload_voice(
         raise HTTPException(status_code=400, detail="File must be a wav file.")
     id = normalize_str_to_safe_filename(id)
     if id in [v.id for v in VOICE_LIST]:
-        raise HTTPException(status_code=400, detail=f"Voice id '{id}' already exists.")
+        raise HTTPException(status_code=400, detail=f"Voice id:'{id}' already exists.")
     voice_info = VoiceInfo(
         id=id,
         name=name,
@@ -185,14 +183,14 @@ def upload_voice(
         uploaded=True,
     )
 
-    file_path = os.path.join(Config.USER_VOICES_DIR, f"{id}.wav")
+    file_path = os.path.join(Config.VOICES_DIR, f"{id}.wav")
     try:
         with open(file_path, "wb") as f:
             f.write(audio_file.file.read())
     except Exception as e:
         logger.error(f"Error uploading voice audio: {e}")
-        raise HTTPException(status_code=500, detail=f"Error uploading voice: {e}")
-    json_path = os.path.join(Config.USER_VOICES_DIR, f"{id}.json")
+        raise HTTPException(status_code=500, detail=f"Error uploading voice audio: {e}")
+    json_path = os.path.join(Config.VOICES_DIR, f"{id}.json")
     try:
         with open(json_path, "w", encoding="utf-8") as f:
             f.write(voice_info.model_dump_json())
@@ -209,12 +207,21 @@ def delete_user_voice(voice: str):
     """[Special] Delete a user voice."""
     if len(VOICE_LIST) == 0:
         build_voice_list()
-    selected_voice = next((v for v in VOICE_LIST if v.id == voice and v.uploaded), None)
+    selected_voice = next(
+        (
+            v
+            for v in VOICE_LIST
+            if v.id == voice and v.uploaded and v.id not in OPENAI_VOICES
+        ),
+        None,
+    )
     if not selected_voice:
-        raise HTTPException(status_code=400, detail=f"User voice '{voice}' not found.")
+        raise HTTPException(
+            status_code=400, detail=f"User voice id:'{voice}' not found."
+        )
     try:
-        os.remove(os.path.join(Config.USER_VOICES_DIR, selected_voice.audio_path))
-        os.remove(os.path.join(Config.USER_VOICES_DIR, f"{selected_voice.id}.json"))
+        os.remove(os.path.join(Config.VOICES_DIR, selected_voice.audio_path))
+        os.remove(os.path.join(Config.VOICES_DIR, f"{selected_voice.id}.json"))
         VOICE_LIST.remove(selected_voice)
     except Exception as e:
         logger.error(f"Error deleting voice: {e}")
