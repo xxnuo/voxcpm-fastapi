@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from server.config import Config
+from server.utils import normalize_str_to_safe_filename
 
 logger = logging.getLogger("voices")
 logger.setLevel(Config.LOG_LEVEL)
@@ -74,13 +75,29 @@ def list_voices():
 
 
 @voices_router.get("/{voice}")
-def get_voice(voice: str) -> VoiceInfo:
+def get_voice_info(voice: str) -> VoiceInfo:
     if len(VOICE_LIST) == 0:
         build_voice_list()
     selected_voice = next((v for v in VOICE_LIST if v.id == voice), None)
     if not selected_voice:
         raise HTTPException(status_code=400, detail=f"Voice '{voice}' not found.")
     return selected_voice
+
+
+@voices_router.get("/{voice}/audio")
+def get_voice_audio(voice: str) -> FileResponse:
+    """[Special] Get the audio file of a voice."""
+    if len(VOICE_LIST) == 0:
+        build_voice_list()
+    selected_voice = next((v for v in VOICE_LIST if v.id == voice), None)
+    if not selected_voice:
+        raise HTTPException(status_code=400, detail=f"Voice '{voice}' not found.")
+    if not selected_voice.uploaded:
+        return FileResponse(os.path.join(Config.VOICES_DIR, selected_voice.audio_path))
+    else:
+        return FileResponse(
+            os.path.join(Config.USER_VOICES_DIR, selected_voice.audio_path)
+        )
 
 
 @voices_router.post("/upload")
@@ -91,27 +108,31 @@ def upload_voice(
     name: Annotated[str, Form(description="The name of the voice.")],
     description: Annotated[str, Form(description="The description of the voice.")],
 ):
+    """[Special] Upload a user voice."""
     if len(VOICE_LIST) == 0:
         build_voice_list()
     if not audio_file.filename.endswith(".wav"):
         raise HTTPException(status_code=400, detail="File must be a wav file.")
+    _id = normalize_str_to_safe_filename(id)
+    if _id in [v.id for v in VOICE_LIST]:
+        raise HTTPException(status_code=400, detail=f"Voice id '{_id}' already exists.")
     voice_info = VoiceInfo(
-        id=id,
+        id=_id,
         name=name,
         description=description,
-        audio_path=f"{id}.wav",
+        audio_path=f"{_id}.wav",
         text=text,
         uploaded=True,
     )
 
-    file_path = os.path.join(Config.USER_VOICES_DIR, f"{id}.wav")
+    file_path = os.path.join(Config.USER_VOICES_DIR, f"{_id}.wav")
     try:
         with open(file_path, "wb") as f:
             f.write(audio_file.file.read())
     except Exception as e:
-        logger.error(f"Error uploading voice: {e}")
+        logger.error(f"Error uploading voice audio: {e}")
         raise HTTPException(status_code=500, detail=f"Error uploading voice: {e}")
-    json_path = os.path.join(Config.USER_VOICES_DIR, f"{id}.json")
+    json_path = os.path.join(Config.USER_VOICES_DIR, f"{_id}.json")
     try:
         with open(json_path, "w", encoding="utf-8") as f:
             f.write(voice_info.model_dump_json())
@@ -125,13 +146,14 @@ def upload_voice(
 
 @voices_router.delete("/{voice}")
 def delete_user_voice(voice: str):
+    """[Special] Delete a user voice."""
     if len(VOICE_LIST) == 0:
         build_voice_list()
     selected_voice = next((v for v in VOICE_LIST if v.id == voice and v.uploaded), None)
     if not selected_voice:
         raise HTTPException(status_code=400, detail=f"Voice '{voice}' not found.")
     try:
-        os.remove(os.path.join(Config.USER_VOICES_DIR, f"{selected_voice.id}.wav"))
+        os.remove(os.path.join(Config.USER_VOICES_DIR, selected_voice.audio_path))
         os.remove(os.path.join(Config.USER_VOICES_DIR, f"{selected_voice.id}.json"))
         VOICE_LIST.remove(selected_voice)
     except Exception as e:
