@@ -2,8 +2,6 @@ import base64
 import json
 import logging
 import os
-import select
-import subprocess
 import tempfile
 from typing import Literal, Optional
 
@@ -13,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from pydub import AudioSegment
+from transformers.trainer_utils import set_seed
 
 from server.apis.voices import (
     get_voice_audio_full_path,
@@ -116,6 +115,10 @@ class GenerateSpeechRequest(BaseModel):
         default=6.0,
         description="Maximum length restriction for bad case detection (simple but effective), it could be adjusted for slow pace speech.",
     )
+    seed: Optional[int] = Field(
+        default=None,
+        description="Random seed for the audio generation.",
+    )
 
 
 @audio_router.post("/speech")
@@ -129,6 +132,8 @@ async def generate_speech(request: GenerateSpeechRequest):
     prompt_audio_path = get_voice_audio_full_path(request.voice)
     prompt_text = get_voice_text(request.voice)
 
+    logger.debug(f"prompt_audio_path: {prompt_audio_path}, prompt_text: {prompt_text}")
+
     if (prompt_audio_path is not None and prompt_text is not None) and (
         not os.path.exists(prompt_audio_path) or prompt_text == ""
     ):
@@ -141,6 +146,9 @@ async def generate_speech(request: GenerateSpeechRequest):
     response_format = (request.response_format or "mp3").lower()
     if response_format not in SUPPORTED_FORMATS:
         response_format = "mp3"
+
+    if request.seed is not None:
+        set_seed(request.seed)
 
     generate_kwargs = dict(
         text=request.input,
@@ -161,10 +169,13 @@ async def generate_speech(request: GenerateSpeechRequest):
     if request.stream_format == "audio" and response_format == "pcm":
 
         def pcm_iterator():
+            idx = 0
             try:
                 for wav_chunk in MODEL.generate_streaming(**generate_kwargs):
                     wav_chunk = np.clip(wav_chunk, -1.0, 1.0)
                     pcm16 = (wav_chunk * 32767).astype(np.int16).tobytes()
+                    idx += 1
+                    logger.debug(f"streaming pcm chunk {idx}, bytes={len(pcm16)}")
                     yield pcm16
             except Exception as e:
                 logger.error(f"Error generating streaming PCM audio: {e}")
@@ -175,163 +186,6 @@ async def generate_speech(request: GenerateSpeechRequest):
         }
         return StreamingResponse(
             pcm_iterator(), media_type="audio/pcm", headers=headers
-        )
-
-    if request.stream_format == "audio" and response_format != "pcm":
-        sample_rate = MODEL.tts_model.sample_rate
-
-        def get_ffmpeg_command(fmt: str):
-            if fmt == "mp3":
-                return [
-                    "ffmpeg",
-                    "-loglevel",
-                    "error",
-                    "-f",
-                    "s16le",
-                    "-ar",
-                    str(sample_rate),
-                    "-ac",
-                    "1",
-                    "-i",
-                    "-",
-                    "-f",
-                    "mp3",
-                    "-",
-                ]
-            if fmt == "opus":
-                return [
-                    "ffmpeg",
-                    "-loglevel",
-                    "error",
-                    "-f",
-                    "s16le",
-                    "-ar",
-                    str(sample_rate),
-                    "-ac",
-                    "1",
-                    "-i",
-                    "-",
-                    "-c:a",
-                    "libopus",
-                    "-f",
-                    "ogg",
-                    "-",
-                ]
-            if fmt == "aac":
-                return [
-                    "ffmpeg",
-                    "-loglevel",
-                    "error",
-                    "-f",
-                    "s16le",
-                    "-ar",
-                    str(sample_rate),
-                    "-ac",
-                    "1",
-                    "-i",
-                    "-",
-                    "-c:a",
-                    "aac",
-                    "-f",
-                    "adts",
-                    "-",
-                ]
-            if fmt == "flac":
-                return [
-                    "ffmpeg",
-                    "-loglevel",
-                    "error",
-                    "-f",
-                    "s16le",
-                    "-ar",
-                    str(sample_rate),
-                    "-ac",
-                    "1",
-                    "-i",
-                    "-",
-                    "-f",
-                    "flac",
-                    "-",
-                ]
-            if fmt == "wav":
-                return [
-                    "ffmpeg",
-                    "-loglevel",
-                    "error",
-                    "-f",
-                    "s16le",
-                    "-ar",
-                    str(sample_rate),
-                    "-ac",
-                    "1",
-                    "-i",
-                    "-",
-                    "-f",
-                    "wav",
-                    "-",
-                ]
-            return None
-
-        ffmpeg_cmd = get_ffmpeg_command(response_format)
-        if ffmpeg_cmd is None:
-            raise HTTPException(status_code=400, detail="Unsupported streaming format")
-
-        def encoded_iterator():
-            proc = subprocess.Popen(
-                ffmpeg_cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=0,
-            )
-            try:
-                assert proc.stdin is not None
-                assert proc.stdout is not None
-
-                for wav_chunk in MODEL.generate_streaming(**generate_kwargs):
-                    wav_chunk = np.clip(wav_chunk, -1.0, 1.0)
-                    pcm16 = (wav_chunk * 32767).astype(np.int16).tobytes()
-                    try:
-                        proc.stdin.write(pcm16)
-                        proc.stdin.flush()
-                    except BrokenPipeError:
-                        break
-
-                    while True:
-                        rlist, _, _ = select.select([proc.stdout], [], [], 0)
-                        if not rlist:
-                            break
-                        data = proc.stdout.read(4096)
-                        if not data:
-                            break
-                        yield data
-
-                if proc.stdin:
-                    proc.stdin.close()
-
-                while True:
-                    data = proc.stdout.read(4096)
-                    if not data:
-                        break
-                    yield data
-            finally:
-                try:
-                    if proc.stdout:
-                        proc.stdout.close()
-                    if proc.stderr:
-                        proc.stderr.close()
-                finally:
-                    try:
-                        proc.wait(timeout=5)
-                    except Exception:
-                        proc.kill()
-
-        media_type = SUPPORTED_FORMATS[response_format]
-        headers = {
-            "Content-Type": media_type,
-        }
-        return StreamingResponse(
-            encoded_iterator(), media_type=media_type, headers=headers
         )
 
     if request.stream_format == "sse":
