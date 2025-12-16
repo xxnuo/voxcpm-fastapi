@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from server.apis.audio import audio_router
 from server.apis.models import models_router
+from server.apis.voices import voices_router
 from server.config import Config
 
 logger = logging.getLogger("v1")
@@ -23,3 +24,4 @@ def get_health():
 
 router.include_router(models_router, prefix="/models")
 router.include_router(audio_router, prefix="/audio")
+router.include_router(voices_router, prefix="/voices")

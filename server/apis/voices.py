@@ -13,6 +13,20 @@ from server.utils import normalize_str_to_safe_filename
 logger = logging.getLogger("voices")
 logger.setLevel(Config.LOG_LEVEL)
 
+OPENAI_VOICES = {
+    "alloy": Config.DEFAULT_VOICE_ID,
+    "ash": Config.DEFAULT_VOICE_ID,
+    "ballad": Config.DEFAULT_VOICE_ID,
+    "coral": Config.DEFAULT_VOICE_ID,
+    "echo": Config.DEFAULT_VOICE_ID,
+    "fable": Config.DEFAULT_VOICE_ID,
+    "onyx": Config.DEFAULT_VOICE_ID,
+    "nova": Config.DEFAULT_VOICE_ID,
+    "sage": Config.DEFAULT_VOICE_ID,
+    "shimmer": Config.DEFAULT_VOICE_ID,
+    "verse": Config.DEFAULT_VOICE_ID,
+}
+
 
 class VoiceInfo(BaseModel):
     id: str
@@ -53,6 +67,8 @@ def get_voice_audio_full_path(id: str) -> str:
     """[Internal] 获取音频文件完整路径"""
     if len(VOICE_LIST) == 0:
         build_voice_list()
+    if id in OPENAI_VOICES:
+        id = OPENAI_VOICES[id]
     selected_voice = next((v for v in VOICE_LIST if v.id == id), None)
     if not selected_voice:
         logger.warning(
@@ -76,6 +92,8 @@ def get_voice_text(id: str) -> str:
     """[Internal] 获取语音文本"""
     if len(VOICE_LIST) == 0:
         build_voice_list()
+    if id in OPENAI_VOICES:
+        id = OPENAI_VOICES[id]
     selected_voice = next((v for v in VOICE_LIST if v.id == id), None)
     if not selected_voice:
         logger.warning(
@@ -95,7 +113,7 @@ def get_voice_text(id: str) -> str:
 voices_router = APIRouter(tags=["Voices API"])
 
 
-@voices_router.get("/")
+@voices_router.get("")
 def list_voices():
     """List all available voices' ids."""
     if len(VOICE_LIST) == 0:
@@ -155,26 +173,26 @@ def upload_voice(
         build_voice_list()
     if not audio_file.filename.endswith(".wav"):
         raise HTTPException(status_code=400, detail="File must be a wav file.")
-    _id = normalize_str_to_safe_filename(id)
-    if _id in [v.id for v in VOICE_LIST]:
-        raise HTTPException(status_code=400, detail=f"Voice id '{_id}' already exists.")
+    id = normalize_str_to_safe_filename(id)
+    if id in [v.id for v in VOICE_LIST]:
+        raise HTTPException(status_code=400, detail=f"Voice id '{id}' already exists.")
     voice_info = VoiceInfo(
-        id=_id,
+        id=id,
         name=name,
         description=description,
-        audio_path=f"{_id}.wav",
+        audio_path=f"{id}.wav",
         text=text,
         uploaded=True,
     )
 
-    file_path = os.path.join(Config.USER_VOICES_DIR, f"{_id}.wav")
+    file_path = os.path.join(Config.USER_VOICES_DIR, f"{id}.wav")
     try:
         with open(file_path, "wb") as f:
             f.write(audio_file.file.read())
     except Exception as e:
         logger.error(f"Error uploading voice audio: {e}")
         raise HTTPException(status_code=500, detail=f"Error uploading voice: {e}")
-    json_path = os.path.join(Config.USER_VOICES_DIR, f"{_id}.json")
+    json_path = os.path.join(Config.USER_VOICES_DIR, f"{id}.json")
     try:
         with open(json_path, "w", encoding="utf-8") as f:
             f.write(voice_info.model_dump_json())

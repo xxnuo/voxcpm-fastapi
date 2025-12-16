@@ -8,6 +8,7 @@ logger = logging.getLogger("models")
 logger.setLevel(Config.LOG_LEVEL)
 
 MODELS = {
+    # OpenAI Compatible Models
     "tts-1": {
         "id": "tts-1",
         "object": "model",
@@ -26,6 +27,7 @@ MODELS = {
         "created": 1677649963,
         "owned_by": "openbmb",
     },
+    # VoxCPM Models
     "voxcpm-1.5": {
         "id": "voxcpm-1.5",
         "object": "model",

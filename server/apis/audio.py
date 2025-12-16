@@ -9,12 +9,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from pydub import AudioSegment
 
-from server.apis.models import MODELS
 from server.apis.voices import (
-    VOICE_LIST,
     get_voice_audio_full_path,
     get_voice_text,
-    voices_router,
 )
 from server.config import Config
 from voxcpm import VoxCPM
@@ -39,6 +36,7 @@ def load_model():
 
 
 SUPPORTED_FORMATS = {
+    # OpenAI Compatible Formats
     "mp3": "audio/mpeg",
     "opus": "audio/opus",
     "aac": "audio/aac",
@@ -46,9 +44,7 @@ SUPPORTED_FORMATS = {
     "wav": "audio/wav",
 }
 
-
 audio_router = APIRouter(tags=["Audio API"])
-audio_router.include_router(voices_router, prefix="/voices")
 
 
 class GenerateSpeechRequest(BaseModel):
