@@ -129,19 +129,23 @@ async def generate_speech(request: GenerateSpeechRequest):
     prompt_audio_path = get_voice_audio_full_path(request.voice)
     prompt_text = get_voice_text(request.voice)
 
-    if not os.path.exists(prompt_audio_path) or not prompt_text:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Prompt audio or text of voice id:{request.voice} not found.",
+    if (prompt_audio_path is not None and prompt_text is not None) and (
+        not os.path.exists(prompt_audio_path) or prompt_text == ""
+    ):
+        logger.warning(
+            f"Prompt audio or text of voice id:'{request.voice}' not found.",
         )
+        prompt_audio_path = None
+        prompt_text = None
+
     response_format = (request.response_format or "mp3").lower()
     if response_format not in SUPPORTED_FORMATS:
         response_format = "mp3"
 
     generate_kwargs = dict(
         text=request.input,
-        # prompt_wav_path=prompt_audio_path,
-        # prompt_text=prompt_text,
+        prompt_wav_path=prompt_audio_path,
+        prompt_text=prompt_text,
         cfg_value=request.cfg_value or Config.DEFAULT_CFG_VALUE,
         inference_timesteps=request.inference_timesteps
         or Config.DEFAULT_INFERENCE_TIMESTEPS,
