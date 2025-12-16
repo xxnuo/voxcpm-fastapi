@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+import random
 import tempfile
 from typing import Literal, Optional
 
@@ -46,6 +47,7 @@ SUPPORTED_FORMATS = {
     "aac": "audio/aac",
     "flac": "audio/flac",
     "wav": "audio/wav",
+    "pcm": "audio/pcm",
 }
 
 audio_router = APIRouter(tags=["Audio API"])
@@ -148,7 +150,13 @@ async def generate_speech(request: GenerateSpeechRequest):
         response_format = "mp3"
 
     if request.seed is not None or request.seed != -1 or request.seed != 0:
+        logger.debug(f"Using seed: {request.seed}")
         set_seed(request.seed)
+    else:
+        logger.debug("Using random seed")
+        random_seed = random.randint(1, 1000000000)
+        logger.debug(f"Random seed: {random_seed}")
+        set_seed(random_seed)
 
     generate_kwargs = dict(
         text=request.input,
@@ -167,6 +175,7 @@ async def generate_speech(request: GenerateSpeechRequest):
     )
 
     if request.stream_format == "audio" and response_format == "pcm":
+        logger.debug(f"Generating streaming PCM audio with kwargs: {generate_kwargs}")
 
         def pcm_iterator():
             idx = 0
@@ -189,6 +198,7 @@ async def generate_speech(request: GenerateSpeechRequest):
         )
 
     if request.stream_format == "sse":
+        logger.debug(f"Generating SSE streaming audio with kwargs: {generate_kwargs}")
 
         def sse_streaming_iterator():
             try:
@@ -220,6 +230,7 @@ async def generate_speech(request: GenerateSpeechRequest):
         )
 
     try:
+        logger.debug(f"Generating audio with kwargs: {generate_kwargs}")
         wav = MODEL.generate(**generate_kwargs)
     except Exception as e:
         logger.error(f"Error generating audio: {e}")
