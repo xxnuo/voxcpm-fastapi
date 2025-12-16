@@ -25,6 +25,7 @@ class ConfigModel(BaseModel):
     USER_VOICES_DIR: str = os.getenv(
         "USER_VOICES_DIR", os.path.join(ROOT_DIR, "user_voices")
     )
+    DEFAULT_VOICE_ID: str = os.getenv("DEFAULT_VOICE_ID", "en_female_neko")
     VOXCPM_MODEL_ID: str = os.getenv(
         "HF_MODEL_ID",
         os.path.join(ROOT_DIR, "models/openbmb/VoxCPM1.5"),

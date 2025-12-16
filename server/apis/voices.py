@@ -30,7 +30,7 @@ VOICE_LIST: List[VoiceInfo] = []
 
 
 def build_voice_list():
-    """构建语音列表"""
+    """[Internal] 构建语音列表"""
     if len(VOICE_LIST) > 0:
         return
     for file in os.listdir(Config.VOICES_DIR):
@@ -52,11 +52,55 @@ def build_voice_list():
             VOICE_LIST.append(user_voice_info)
 
 
+def get_voice_audio_full_path(id: str) -> str:
+    """[Internal] 获取音频文件完整路径"""
+    if len(VOICE_LIST) == 0:
+        build_voice_list()
+    selected_voice = next((v for v in VOICE_LIST if v.id == id), None)
+    if not selected_voice:
+        logger.warning(
+            f"Voice '{id}' not found, using default voice {Config.DEFAULT_VOICE_ID}."
+        )
+        selected_voice = next(
+            (v for v in VOICE_LIST if v.id == Config.DEFAULT_VOICE_ID), None
+        )
+        if not selected_voice:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Default voice {Config.DEFAULT_VOICE_ID} not found.",
+            )
+    if not selected_voice.uploaded:
+        return os.path.join(Config.VOICES_DIR, selected_voice.audio_path)
+    else:
+        return os.path.join(Config.USER_VOICES_DIR, selected_voice.audio_path)
+
+
+def get_voice_text(id: str) -> str:
+    """[Internal] 获取语音文本"""
+    if len(VOICE_LIST) == 0:
+        build_voice_list()
+    selected_voice = next((v for v in VOICE_LIST if v.id == id), None)
+    if not selected_voice:
+        logger.warning(
+            f"Voice '{id}' not found, using default voice {Config.DEFAULT_VOICE_ID}."
+        )
+        selected_voice = next(
+            (v for v in VOICE_LIST if v.id == Config.DEFAULT_VOICE_ID), None
+        )
+        if not selected_voice:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Default voice {Config.DEFAULT_VOICE_ID} not found.",
+            )
+    return selected_voice.text or ""
+
+
 voices_router = APIRouter(tags=["Voices API"])
 
 
 @voices_router.get("/")
 def list_voices():
+    """List all available voices' ids."""
     if len(VOICE_LIST) == 0:
         build_voice_list()
     try:
@@ -76,6 +120,7 @@ def list_voices():
 
 @voices_router.get("/{voice}")
 def get_voice_info(voice: str) -> VoiceInfo:
+    """[Special] Get the info of a voice."""
     if len(VOICE_LIST) == 0:
         build_voice_list()
     selected_voice = next((v for v in VOICE_LIST if v.id == voice), None)
