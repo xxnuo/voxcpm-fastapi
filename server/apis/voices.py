@@ -211,7 +211,7 @@ def delete_user_voice(voice: str):
         build_voice_list()
     selected_voice = next((v for v in VOICE_LIST if v.id == voice and v.uploaded), None)
     if not selected_voice:
-        raise HTTPException(status_code=400, detail=f"Voice '{voice}' not found.")
+        raise HTTPException(status_code=400, detail=f"User voice '{voice}' not found.")
     try:
         os.remove(os.path.join(Config.USER_VOICES_DIR, selected_voice.audio_path))
         os.remove(os.path.join(Config.USER_VOICES_DIR, f"{selected_voice.id}.json"))
